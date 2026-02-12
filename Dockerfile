@@ -14,7 +14,7 @@ RUN npm ci --only=production
 COPY . .
 
 # Expose the port the app runs on
-EXPOSE 3000
+EXPOSE 4455
 
 # Set environment variables (can be overridden at runtime)
 ENV PORT=3000
