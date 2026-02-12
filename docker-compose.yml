@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  monday-webhook:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - MONDAY_API_KEY=${MONDAY_API_KEY}
+    restart: unless-stopped
+    container_name: monday-webhook-server
