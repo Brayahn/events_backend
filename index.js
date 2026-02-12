@@ -20,8 +20,9 @@ app.post('/webhook/monday', async (req, res) => {
     const boardName = req.body.event?.pulseName || "New Auto Board";
     const workspaceId = req.body.event?.workspaceId || '14192369';
     const folderId = req.body.event?.folderId || '19465689';
+    const templateId = '16165057'; // Template ID to use
     
-    console.log(`Creating board with name: "${boardName}"`);
+    console.log(`Creating board with name: "${boardName}" from template: ${templateId}`);
     
     if (!workspaceId || !folderId) {
       return res.status(400).json({
@@ -31,12 +32,13 @@ app.post('/webhook/monday', async (req, res) => {
     }
     
     const query = `
-      mutation ($boardName: String!, $workspaceId: ID!, $folderId: ID!) {
+      mutation ($boardName: String!, $workspaceId: ID!, $folderId: ID!, $templateId: ID!) {
         create_board (
           board_name: $boardName,
           board_kind: public,
           workspace_id: $workspaceId,
-          folder_id: $folderId
+          folder_id: $folderId,
+          template_id: $templateId
         ) {
           id
           name
@@ -55,13 +57,14 @@ app.post('/webhook/monday', async (req, res) => {
         variables: {
           boardName,
           workspaceId,
-          folderId
+          folderId,
+          templateId
         }
       })
     });
     
     const data = await response.json();
-    console.log("Board created inside folder:", data);
+    console.log("Board created from template:", data);
     
     return res.status(200).json({
       success: true,
