@@ -2,7 +2,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const app = express();
 app.use(express.json());
-const PORT = process.env.PORT || 4455;
+const PORT = process.env.PORT || 3000;
 const MONDAY_API_KEY = process.env.MONDAY_API_KEY || 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjMzMzg0NDUzNiwiYWFpIjoxMSwidWlkIjo1NzI1NDM4OSwiaWFkIjoiMjAyNC0wMy0xNlQxOTo1MTo1My4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MTQ5Mjc2NzgsInJnbiI6InVzZTEifQ.GzG-PARLDqJnQBQkff9Nj95pWdbc9CTRziyF4QdFNH4';
 
 app.post('/webhook/monday', async (req, res) => {
@@ -18,8 +18,8 @@ app.post('/webhook/monday', async (req, res) => {
   try {
     // 🔹 Extract values from webhook - Use pulseName as board name
     const boardName = req.body.event?.pulseName || "New Auto Board";
-    const workspaceId = req.body.event?.workspaceId || 14192369;
-    const folderId = req.body.event?.folderId || 19465689;
+    const workspaceId = req.body.event?.workspaceId || '14192369';
+    const folderId = req.body.event?.folderId || '19465689';
     
     console.log(`Creating board with name: "${boardName}"`);
     
@@ -31,7 +31,7 @@ app.post('/webhook/monday', async (req, res) => {
     }
     
     const query = `
-      mutation ($boardName: String!, $workspaceId: Int!, $folderId: Int!) {
+      mutation ($boardName: String!, $workspaceId: ID!, $folderId: ID!) {
         create_board (
           board_name: $boardName,
           board_kind: public,
