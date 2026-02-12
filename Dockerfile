@@ -17,7 +17,7 @@ COPY . .
 EXPOSE 4455
 
 # Set environment variables (can be overridden at runtime)
-ENV PORT=3000
+ENV PORT=4455
 ENV NODE_ENV=production
 
 # Run the application
