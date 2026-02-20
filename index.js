@@ -553,24 +553,47 @@ app.post('/api/shorten-with-qr', async (req, res) => {
       const columnTitle = columnTitleMap[column.id] || '';
       const columnText = column.text || '';
       
-      console.log(`Checking column ${column.id} (${columnTitle}): "${columnText}"`);
+      console.log(`Checking column ${column.id} (${columnTitle}):`, {
+        text: columnText,
+        type: column.type,
+        value: column.value
+      });
       
-      // Option 1: Check by column title
-      if (columnTitle.toLowerCase().includes('url')) {
-        longUrl = columnText;
-        urlColumnId = column.id;
-        console.log(`✓ Found URL by title "${columnTitle}": ${longUrl}`);
-        break;
+      // Option 1: Check by column title containing "url"
+      if (columnTitle.toLowerCase().includes('url') || columnTitle.toLowerCase().includes('paste long link')) {
+        // For link columns, extract URL from JSON value
+        if (column.type === 'link' && column.value) {
+          try {
+            const linkValue = JSON.parse(column.value);
+            console.log('Parsed link value:', linkValue);
+            longUrl = linkValue.url || linkValue.text;
+            urlColumnId = column.id;
+            console.log(`✓ Found URL in link column "${columnTitle}": ${longUrl}`);
+            break;
+          } catch (e) {
+            console.log('Could not parse link value:', column.value);
+          }
+        } else if (columnText) {
+          // For text columns, use the text directly
+          longUrl = columnText;
+          urlColumnId = column.id;
+          console.log(`✓ Found URL by title "${columnTitle}": ${longUrl}`);
+          break;
+        }
       }
       
-      // Option 2: Check if column type is 'link'
+      // Option 2: Check if column type is 'link' and has a value
       if (column.type === 'link' && column.value) {
         try {
           const linkValue = JSON.parse(column.value);
-          longUrl = linkValue.url || linkValue.text;
-          urlColumnId = column.id;
-          console.log(`✓ Found URL in link column "${columnTitle}": ${longUrl}`);
-          break;
+          console.log('Link column value:', linkValue);
+          const url = linkValue.url || linkValue.text;
+          if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+            longUrl = url;
+            urlColumnId = column.id;
+            console.log(`✓ Found URL in link column "${columnTitle}": ${longUrl}`);
+            break;
+          }
         } catch (e) {
           // Not a valid JSON
         }
@@ -605,10 +628,9 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     try {
       new URL(longUrl);
     } catch (error) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid URL format. Please include https://"
-      });
+      console.error('Invalid URL format:', longUrl);
+      // Response already sent, just log and return
+      return;
     }
 
     // Generate short code
@@ -616,10 +638,9 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     let shortCode = customCode || generateShortCode();
     
     if (customCode && urlDatabase.has(customCode)) {
-      return res.status(400).json({
-        success: false,
-        message: "Custom code already exists"
-      });
+      console.error('Custom code already exists:', customCode);
+      // Response already sent, just log and return
+      return;
     }
 
     // Store in database
