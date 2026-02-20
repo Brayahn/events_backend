@@ -383,17 +383,57 @@ async function getMondayItemData(itemId) {
     }
   `;
 
-  const response = await fetch("https://api.monday.com/v2", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": MONDAY_API_KEY
-    },
-    body: JSON.stringify({ query })
-  });
+  console.log('Making Monday API request for item:', itemId);
+  
+  try {
+    // Create a timeout promise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Request timeout')), 10000);
+    });
 
-  const data = await response.json();
-  return data?.data?.items?.[0] || null;
+    // Create the fetch promise
+    const fetchPromise = fetch("https://api.monday.com/v2", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": MONDAY_API_KEY
+      },
+      body: JSON.stringify({ query })
+    });
+
+    // Race between timeout and fetch
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
+
+    console.log('Monday API response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Monday API error response:', errorText);
+      throw new Error(`Monday API returned ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('Monday API response received');
+    console.log('Has data:', !!data.data);
+    console.log('Has items:', !!data.data?.items);
+
+    if (data.errors) {
+      console.error('Monday API GraphQL errors:', data.errors);
+      throw new Error(`GraphQL errors: ${JSON.stringify(data.errors)}`);
+    }
+
+    const item = data?.data?.items?.[0] || null;
+    if (item) {
+      console.log('Item found with', item.column_values?.length || 0, 'columns');
+    } else {
+      console.log('No item found in response');
+    }
+
+    return item;
+  } catch (error) {
+    console.error('Error fetching Monday item data:', error.message);
+    throw error;
+  }
 }
 
 // ==================== COMBINED: SHORTEN + QR CODE (WITH MONDAY WEBHOOK) ====================
@@ -425,9 +465,31 @@ app.post('/api/shorten-with-qr', async (req, res) => {
 
     console.log(`Webhook for Item: ${itemId}, Board: ${boardId}`);
 
+    // Respond immediately to Monday to prevent retries
+    // We'll process asynchronously
+    res.status(200).json({
+      success: true,
+      message: "Processing webhook...",
+      itemId,
+      boardId
+    });
+
+    console.log('Response sent to Monday, continuing processing...');
+
     // Fetch the full item data from Monday API
     console.log('Fetching item data from Monday API...');
-    const itemData = await getMondayItemData(itemId);
+    
+    let itemData;
+    try {
+      itemData = await getMondayItemData(itemId);
+    } catch (fetchError) {
+      console.error('Failed to fetch item data:', fetchError.message);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to fetch item data from Monday API",
+        error: fetchError.message
+      });
+    }
     
     if (!itemData) {
       return res.status(404).json({
@@ -436,7 +498,8 @@ app.post('/api/shorten-with-qr', async (req, res) => {
       });
     }
 
-    console.log('Item data fetched:', JSON.stringify(itemData, null, 2));
+    console.log('Item data fetched successfully');
+    console.log('Columns:', itemData.column_values.map(c => ({ id: c.id, title: c.title, text: c.text })));
 
     // Extract URL from column values
     // Look for the URL column (adjust the column name/id as needed)
@@ -448,7 +511,7 @@ app.post('/api/shorten-with-qr', async (req, res) => {
       const columnText = column.text || '';
       
       // Option 1: Check by column title
-      if (column.title && column.title.toLowerCase().includes('url')) {
+      if (column.title && column.title.toLowerCase().includes('paste long link')) {
         longUrl = columnText;
         urlColumnId = column.id;
         console.log(`Found URL by title "${column.title}": ${longUrl}`);
@@ -562,25 +625,13 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     
     console.log('QR code upload result:', JSON.stringify(uploadResult, null, 2));
 
-    return res.status(200).json({
-      success: true,
-      originalUrl: longUrl,
-      shortUrl,
-      shortCode,
-      itemId,
-      boardId,
-      mondayUpdateResult: updateResult,
-      qrUploadResult: uploadResult,
-      message: "Short URL and QR code have been added to your Monday board!"
-    });
+    console.log('✅ Successfully completed processing for item:', itemId);
+    console.log(`Short URL: ${shortUrl}`);
     
   } catch (error) {
     console.error("Error in shorten-with-qr:", error);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      stack: error.stack
-    });
+    console.error("Stack trace:", error.stack);
+    // Note: Response already sent, just log the error
   }
 });
 
