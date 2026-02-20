@@ -42,6 +42,16 @@ async function updateMondayColumns(itemId, boardId, columnValues) {
     }
   `;
 
+  // For link columns, each value should be stringified individually
+  const stringifiedColumnValues = {};
+  for (const [key, value] of Object.entries(columnValues)) {
+    if (typeof value === 'object') {
+      stringifiedColumnValues[key] = JSON.stringify(value);
+    } else {
+      stringifiedColumnValues[key] = value;
+    }
+  }
+
   const response = await fetch("https://api.monday.com/v2", {
     method: "POST",
     headers: {
@@ -53,7 +63,7 @@ async function updateMondayColumns(itemId, boardId, columnValues) {
       variables: {
         boardId: boardId.toString(),
         itemId: itemId.toString(),
-        columnValues: JSON.stringify(columnValues)
+        columnValues: JSON.stringify(stringifiedColumnValues)
       }
     })
   });
@@ -687,12 +697,12 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     
     console.log('Shortened Link column ID:', shortenedLinkColumnId);
 
-    // For link columns, we need to set both url and text
+    // For link columns, Monday expects the value as an object (not stringified)
     const columnUpdates = {
-      [shortenedLinkColumnId]: JSON.stringify({
+      [shortenedLinkColumnId]: {
         url: shortUrl,
         text: shortUrl
-      })
+      }
     };
 
     console.log('Updating Monday columns:', columnUpdates);
@@ -718,6 +728,25 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     );
     
     console.log('QR code upload result:', JSON.stringify(uploadResult, null, 2));
+
+    // Update status to "Generated" after successful completion
+    if (uploadResult?.data?.add_file_to_column) {
+      console.log('Updating status to Generated...');
+      
+      // Find the status column
+      const statusColumn = boardColumns.find(col => 
+        col.title.toLowerCase() === 'status' && col.type === 'status'
+      );
+      
+      if (statusColumn) {
+        const statusUpdate = {
+          [statusColumn.id]: { "label": "Generated" }
+        };
+        
+        const statusResult = await updateMondayColumns(itemId, boardId, statusUpdate);
+        console.log('Status update result:', JSON.stringify(statusResult, null, 2));
+      }
+    }
 
     console.log('✅ Successfully completed processing for item:', itemId);
     console.log(`Short URL: ${shortUrl}`);
