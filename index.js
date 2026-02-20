@@ -63,6 +63,10 @@ async function updateMondayColumns(itemId, boardId, columnValues) {
 
 // Upload file to Monday.com
 async function uploadFileToMonday(itemId, columnId, fileBuffer, fileName) {
+  const FormData = require('form-data');
+  const form = new FormData();
+  
+  // Correct Monday.com file upload format
   const query = `
     mutation ($file: File!) {
       add_file_to_column (
@@ -74,27 +78,35 @@ async function uploadFileToMonday(itemId, columnId, fileBuffer, fileName) {
       }
     }
   `;
-
-  // Create form data
-  const FormData = require('form-data');
-  const form = new FormData();
+  
+  // Map tells Monday which form field contains the file
+  const map = {
+    "image": ["variables.file"]
+  };
   
   form.append('query', query);
-  form.append('variables[file]', fileBuffer, {
+  form.append('map', JSON.stringify(map));
+  form.append('image', fileBuffer, {
     filename: fileName,
     contentType: 'image/png'
   });
 
-  const response = await fetch("https://api.monday.com/v2", {
-    method: "POST",
-    headers: {
-      "Authorization": MONDAY_API_KEY,
-      ...form.getHeaders()
-    },
-    body: form
-  });
+  try {
+    const response = await fetch("https://api.monday.com/v2/file", {
+      method: "POST",
+      headers: {
+        "Authorization": MONDAY_API_KEY,
+        ...form.getHeaders()
+      },
+      body: form
+    });
 
-  return await response.json();
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error('Error uploading file to Monday:', error);
+    throw error;
+  }
 }
 
 // ==================== MONDAY WEBHOOK ====================
@@ -665,11 +677,22 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     console.log(`Generated - Short URL: ${shortUrl}, QR Code size: ${qrBuffer.length} bytes`);
 
     // Update Monday.com board with shortened URL
-    // Update the "Shortened Link" column with the short URL
+    // Find the "Shortened Link" column ID from board columns
+    const shortenedLinkColumn = boardColumns.find(col => 
+      col.title.toLowerCase().includes('shortened') || 
+      col.title.toLowerCase().includes('short')
+    );
+    
+    const shortenedLinkColumnId = shortenedLinkColumn?.id || 'link_mkm2xtks';
+    
+    console.log('Shortened Link column ID:', shortenedLinkColumnId);
+
+    // For link columns, we need to set both url and text
     const columnUpdates = {
-      // Replace 'text8' with your actual column ID for "Shortened Link"
-      // You can find column IDs in Monday.com board settings
-      text8: shortUrl  // Update this column ID to match your board
+      [shortenedLinkColumnId]: JSON.stringify({
+        url: shortUrl,
+        text: shortUrl
+      })
     };
 
     console.log('Updating Monday columns:', columnUpdates);
@@ -678,8 +701,12 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     console.log('Monday update result:', JSON.stringify(updateResult, null, 2));
 
     // Upload QR code image to Monday.com
-    // Replace 'file' with your actual column ID for "QR Code"
-    const qrColumnId = 'file';  // Update this column ID to match your board
+    // Find the "QR Code" column ID from board columns
+    const qrCodeColumn = boardColumns.find(col => 
+      col.title.toLowerCase().includes('qr') && col.type === 'file'
+    );
+    
+    const qrColumnId = qrCodeColumn?.id || 'file_mkm2j36d';
     
     console.log(`Uploading QR code to column: ${qrColumnId}`);
     
