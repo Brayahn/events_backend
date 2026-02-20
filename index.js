@@ -361,6 +361,41 @@ app.post('/api/qrcode/base64', async (req, res) => {
   }
 });
 
+// ==================== HELPER: FETCH ITEM DATA FROM MONDAY ====================
+
+async function getMondayItemData(itemId) {
+  const query = `
+    query {
+      items(ids: ${itemId}) {
+        id
+        name
+        board {
+          id
+        }
+        column_values {
+          id
+          title
+          text
+          type
+          value
+        }
+      }
+    }
+  `;
+
+  const response = await fetch("https://api.monday.com/v2", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": MONDAY_API_KEY
+    },
+    body: JSON.stringify({ query })
+  });
+
+  const data = await response.json();
+  return data?.data?.items?.[0] || null;
+}
+
 // ==================== COMBINED: SHORTEN + QR CODE (WITH MONDAY WEBHOOK) ====================
 
 // Shorten URL and generate QR code in one request
@@ -380,47 +415,80 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     const event = req.body.event;
     const itemId = event?.pulseId;
     const boardId = event?.boardId;
-    
-    // Extract the long URL from column values
-    // The column name is "Paste Long Link (Add https://)"
-    const columnValues = event?.columnValues || {};
-    let longUrl = null;
-    
-    // Find the URL column - check multiple possible formats
-    for (const [columnId, value] of Object.entries(columnValues)) {
-      if (value && typeof value === 'object' && value.text) {
-        // Text column format
-        longUrl = value.text;
-        break;
-      } else if (value && typeof value === 'object' && value.url) {
-        // Link column format
-        longUrl = value.url;
-        break;
-      } else if (typeof value === 'string' && value.startsWith('http')) {
-        // Direct string value
-        longUrl = value;
-        break;
-      }
-    }
-
-    // Fallback to direct parameters if webhook doesn't contain URL
-    if (!longUrl && req.body.url) {
-      longUrl = req.body.url;
-    }
-
-    console.log(`Extracted - ItemId: ${itemId}, BoardId: ${boardId}, URL: ${longUrl}`);
-
-    if (!longUrl) {
-      return res.status(400).json({
-        success: false,
-        message: "URL is required. Please paste a URL in the 'Paste Long Link' column."
-      });
-    }
 
     if (!itemId || !boardId) {
       return res.status(400).json({
         success: false,
         message: "Monday webhook missing itemId or boardId"
+      });
+    }
+
+    console.log(`Webhook for Item: ${itemId}, Board: ${boardId}`);
+
+    // Fetch the full item data from Monday API
+    console.log('Fetching item data from Monday API...');
+    const itemData = await getMondayItemData(itemId);
+    
+    if (!itemData) {
+      return res.status(404).json({
+        success: false,
+        message: "Could not fetch item data from Monday"
+      });
+    }
+
+    console.log('Item data fetched:', JSON.stringify(itemData, null, 2));
+
+    // Extract URL from column values
+    // Look for the URL column (adjust the column name/id as needed)
+    let longUrl = null;
+    let urlColumnId = null;
+
+    for (const column of itemData.column_values) {
+      // Check if this is the URL column by title or if it contains a URL
+      const columnText = column.text || '';
+      
+      // Option 1: Check by column title
+      if (column.title && column.title.toLowerCase().includes('paste long link')) {
+        longUrl = columnText;
+        urlColumnId = column.id;
+        console.log(`Found URL by title "${column.title}": ${longUrl}`);
+        break;
+      }
+      
+      // Option 2: Check if column type is 'link'
+      if (column.type === 'link' && column.value) {
+        try {
+          const linkValue = JSON.parse(column.value);
+          longUrl = linkValue.url || linkValue.text;
+          urlColumnId = column.id;
+          console.log(`Found URL in link column "${column.title}": ${longUrl}`);
+          break;
+        } catch (e) {
+          // Not a valid JSON
+        }
+      }
+      
+      // Option 3: Check if text looks like a URL
+      if (columnText && (columnText.startsWith('http://') || columnText.startsWith('https://'))) {
+        longUrl = columnText;
+        urlColumnId = column.id;
+        console.log(`Found URL in text column "${column.title}": ${longUrl}`);
+        break;
+      }
+    }
+
+    // Fallback to direct parameters if URL not found
+    if (!longUrl && req.body.url) {
+      longUrl = req.body.url;
+    }
+
+    console.log(`Extracted URL: ${longUrl} from column: ${urlColumnId}`);
+
+    if (!longUrl) {
+      return res.status(400).json({
+        success: false,
+        message: "URL not found in item. Please paste a URL in the 'Paste Long Link' column.",
+        itemData: itemData.column_values.map(c => ({ id: c.id, title: c.title, text: c.text }))
       });
     }
 
