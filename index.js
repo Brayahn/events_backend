@@ -18,6 +18,8 @@ app.use((req, res, next) => {
 
 const PORT = process.env.PORT || 3000;
 const MONDAY_API_KEY = process.env.MONDAY_API_KEY || 'eyJhbGciOiJIUzI1NiJ9.eyJ0aWQiOjMzMzg0NDUzNiwiYWFpIjoxMSwidWlkIjo1NzI1NDM4OSwiaWFkIjoiMjAyNC0wMy0xNlQxOTo1MTo1My4wMDBaIiwicGVyIjoibWU6d3JpdGUiLCJhY3RpZCI6MTQ5Mjc2NzgsInJnbiI6InVzZTEifQ.GzG-PARLDqJnQBQkff9Nj95pWdbc9CTRziyF4QdFNH4';
+// Base URL for short links - use environment variable or fallback to localhost
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 const urlDatabase = new Map();
 
@@ -392,9 +394,17 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     console.log("🔗 Long URL:", longUrl);
 
     const shortCode = generateShortCode();
-    const shortUrl = `${req.protocol}://${req.get('host')}/s/${shortCode}`;
+    const shortUrl = `${BASE_URL}/s/${shortCode}`;
 
     console.log("✨ Short URL:", shortUrl);
+
+    // Store in database
+    urlDatabase.set(shortCode, {
+      originalUrl: longUrl,
+      shortCode,
+      createdAt: new Date().toISOString(),
+      clicks: 0
+    });
 
     const qrBuffer = await QRCode.toBuffer(shortUrl, { width: 500 });
 
@@ -455,4 +465,5 @@ app.get('/s/:shortCode', (req, res) => {
 // ==================== START ====================
 app.listen(PORT, () => {
   console.log(`🚀 Server on port ${PORT}`);
+  console.log(`🔗 Short URL base: ${BASE_URL}`);
 });
