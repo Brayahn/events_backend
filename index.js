@@ -30,11 +30,6 @@ function logDivider() {
 }
 
 
-
-
-
-
-
 // ==================== UPDATE MONDAY COLUMNS ====================
 async function updateMondayColumns(itemId, boardId, columnValues) {
   logDivider();
@@ -239,13 +234,9 @@ async function getBoardColumns(boardId) {
 }
 
 
-
-
-
-
 // ==================== MONDAY WEBHOOK ====================
 app.post('/webhook/monday', async (req, res) => {
-  console.log('Body:', JSON.stringify(req.body, null, 2));
+  console.log('📨 Webhook received:', JSON.stringify(req.body, null, 2));
   
   // Monday verification challenge
   if (req.body.challenge) {
@@ -255,13 +246,13 @@ app.post('/webhook/monday', async (req, res) => {
   }
   
   try {
-    // 🔹 Extract values from webhook - Use pulseName as board name
+    // Extract values from webhook
     const boardName = req.body.event?.pulseName || "New Auto Board";
     const workspaceId = req.body.event?.workspaceId || '14192369';
     const folderId = req.body.event?.folderId || '19465689';
-    const templateId = '16165057'; // Template ID to use
+    const templateId = '16165057';
     
-    console.log(`Creating board with name: "${boardName}" from template: ${templateId}`);
+    console.log(`📋 Creating board: "${boardName}" from template: ${templateId}`);
     
     if (!workspaceId || !folderId) {
       return res.status(400).json({
@@ -303,7 +294,45 @@ app.post('/webhook/monday', async (req, res) => {
     });
     
     const data = await response.json();
-    console.log("Board created from template:", data);
+    console.log("📊 Board creation result:", JSON.stringify(data, null, 2));
+    
+    // ✅ Update status after successful board creation
+    if (data?.data?.create_board?.id) {
+      console.log('✅ Board created successfully! ID:', data.data.create_board.id);
+      console.log('📝 Updating status to "Board and form generated"...');
+      
+      const webhookItemId = req.body.event?.pulseId;
+      const webhookBoardId = req.body.event?.boardId;
+      
+      if (webhookItemId && webhookBoardId) {
+        try {
+          const boardColumns = await getBoardColumns(webhookBoardId);
+          
+          const statusColumn = boardColumns.find(col => 
+            col.title.toLowerCase() === 'status' && col.type === 'status'
+          );
+          
+          if (statusColumn) {
+            const statusUpdate = {
+              [statusColumn.id]: { index: 1 }
+            };
+            
+            const statusResult = await updateMondayColumns(webhookItemId, webhookBoardId, statusUpdate);
+            
+            if (!statusResult.errors) {
+              console.log('✅ Status updated to "Board and form generated"');
+            } else {
+              console.log('⚠️ Status update errors:', statusResult.errors);
+              console.log('💡 Check status column index in Monday.com');
+            }
+          } else {
+            console.log('⚠️ Status column not found');
+          }
+        } catch (statusError) {
+          console.error('❌ Status update failed:', statusError.message);
+        }
+      }
+    }
     
     return res.status(200).json({
       success: true,
@@ -311,7 +340,7 @@ app.post('/webhook/monday', async (req, res) => {
     });
     
   } catch (error) {
-    console.error("Error creating board:", error);
+    console.error("❌ Error creating board:", error);
     return res.status(500).json({
       success: false,
       error: error.message
@@ -320,13 +349,10 @@ app.post('/webhook/monday', async (req, res) => {
 });
 
 
-
-
-
-// ==================== WEBHOOK ====================
+// ==================== SHORTEN WITH QR ====================
 app.post('/api/shorten-with-qr', async (req, res) => {
 
-  console.log("\n🚀 Webhook Received:");
+  console.log("\n🚀 Shorten-with-QR Webhook:");
   console.log(JSON.stringify(req.body, null, 2));
 
   if (req.body.challenge) {
@@ -343,7 +369,7 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     }
 
     res.status(200).json({ success: true });
-    console.log("✅ Immediate response sent to Monday");
+    console.log("✅ Immediate response sent");
 
     const itemData = await getMondayItemData(itemId);
     const boardColumns = await getBoardColumns(boardId);
@@ -359,7 +385,7 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     }
 
     if (!longUrl) {
-      console.log("⚠ No URL found");
+      console.log("⚠️ No URL found");
       return;
     }
 
@@ -368,7 +394,7 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     const shortCode = generateShortCode();
     const shortUrl = `${req.protocol}://${req.get('host')}/s/${shortCode}`;
 
-    console.log("✨ Short URL Generated:", shortUrl);
+    console.log("✨ Short URL:", shortUrl);
 
     const qrBuffer = await QRCode.toBuffer(shortUrl, { width: 500 });
 
@@ -411,7 +437,7 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     console.log("🎉 Processing Complete");
 
   } catch (error) {
-    console.error("🔥 Webhook Error:", error);
+    console.error("🔥 Error:", error);
   }
 });
 
@@ -426,7 +452,7 @@ app.get('/s/:shortCode', (req, res) => {
 });
 
 
-// ==================== START SERVER ====================
+// ==================== START ====================
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server on port ${PORT}`);
 });
