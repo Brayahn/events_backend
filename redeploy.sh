@@ -3,6 +3,7 @@
 echo "Stopping and removing old container..."
 docker stop monday_webhook_server 2>/dev/null
 docker rm monday_webhook_server 2>/dev/null
+docker rmi monday_webhook_server 2>/dev/null
 
 echo "Rebuilding Docker image..."
 docker build -t monday_webhook_server .
