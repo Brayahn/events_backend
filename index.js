@@ -448,7 +448,7 @@ app.post('/api/shorten-with-qr', async (req, res) => {
       const columnText = column.text || '';
       
       // Option 1: Check by column title
-      if (column.title && column.title.toLowerCase().includes('paste long link')) {
+      if (column.title && column.title.toLowerCase().includes('url')) {
         longUrl = columnText;
         urlColumnId = column.id;
         console.log(`Found URL by title "${column.title}": ${longUrl}`);
