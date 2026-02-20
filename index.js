@@ -363,10 +363,47 @@ app.post('/api/qrcode/base64', async (req, res) => {
 
 // ==================== HELPER: FETCH ITEM DATA FROM MONDAY ====================
 
+async function getBoardColumns(boardId) {
+  const query = `
+    query {
+      boards(ids: [${boardId}]) {
+        columns {
+          id
+          title
+          type
+        }
+      }
+    }
+  `;
+
+  try {
+    const response = await fetch("https://api.monday.com/v2", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": MONDAY_API_KEY
+      },
+      body: JSON.stringify({ query })
+    });
+
+    const data = await response.json();
+    
+    if (data.errors) {
+      console.error('Error fetching board columns:', data.errors);
+      return [];
+    }
+
+    return data?.data?.boards?.[0]?.columns || [];
+  } catch (error) {
+    console.error('Error fetching board columns:', error);
+    return [];
+  }
+}
+
 async function getMondayItemData(itemId) {
   const query = `
     query {
-      items(ids: ${itemId}) {
+      items(ids: [${itemId}]) {
         id
         name
         board {
@@ -374,7 +411,6 @@ async function getMondayItemData(itemId) {
         }
         column_values {
           id
-          title
           text
           type
           value
@@ -484,22 +520,29 @@ app.post('/api/shorten-with-qr', async (req, res) => {
       itemData = await getMondayItemData(itemId);
     } catch (fetchError) {
       console.error('Failed to fetch item data:', fetchError.message);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to fetch item data from Monday API",
-        error: fetchError.message
-      });
+      // Response already sent, just log and return
+      return;
     }
     
     if (!itemData) {
-      return res.status(404).json({
-        success: false,
-        message: "Could not fetch item data from Monday"
-      });
+      console.error('Could not fetch item data from Monday');
+      // Response already sent, just log and return
+      return;
     }
 
     console.log('Item data fetched successfully');
-    console.log('Columns:', itemData.column_values.map(c => ({ id: c.id, title: c.title, text: c.text })));
+    console.log('Columns:', itemData.column_values.map(c => ({ id: c.id, type: c.type, text: c.text })));
+
+    // Fetch board columns to get column titles
+    console.log('Fetching board columns to get titles...');
+    const boardColumns = await getBoardColumns(boardId);
+    console.log('Board columns:', boardColumns.map(c => ({ id: c.id, title: c.title, type: c.type })));
+
+    // Create a map of column ID to title
+    const columnTitleMap = {};
+    boardColumns.forEach(col => {
+      columnTitleMap[col.id] = col.title;
+    });
 
     // Extract URL from column values
     // Look for the URL column (adjust the column name/id as needed)
@@ -507,14 +550,16 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     let urlColumnId = null;
 
     for (const column of itemData.column_values) {
-      // Check if this is the URL column by title or if it contains a URL
+      const columnTitle = columnTitleMap[column.id] || '';
       const columnText = column.text || '';
       
+      console.log(`Checking column ${column.id} (${columnTitle}): "${columnText}"`);
+      
       // Option 1: Check by column title
-      if (column.title && column.title.toLowerCase().includes('paste long link')) {
+      if (columnTitle.toLowerCase().includes('url')) {
         longUrl = columnText;
         urlColumnId = column.id;
-        console.log(`Found URL by title "${column.title}": ${longUrl}`);
+        console.log(`✓ Found URL by title "${columnTitle}": ${longUrl}`);
         break;
       }
       
@@ -524,7 +569,7 @@ app.post('/api/shorten-with-qr', async (req, res) => {
           const linkValue = JSON.parse(column.value);
           longUrl = linkValue.url || linkValue.text;
           urlColumnId = column.id;
-          console.log(`Found URL in link column "${column.title}": ${longUrl}`);
+          console.log(`✓ Found URL in link column "${columnTitle}": ${longUrl}`);
           break;
         } catch (e) {
           // Not a valid JSON
@@ -535,7 +580,7 @@ app.post('/api/shorten-with-qr', async (req, res) => {
       if (columnText && (columnText.startsWith('http://') || columnText.startsWith('https://'))) {
         longUrl = columnText;
         urlColumnId = column.id;
-        console.log(`Found URL in text column "${column.title}": ${longUrl}`);
+        console.log(`✓ Found URL in text column "${columnTitle}": ${longUrl}`);
         break;
       }
     }
@@ -548,11 +593,12 @@ app.post('/api/shorten-with-qr', async (req, res) => {
     console.log(`Extracted URL: ${longUrl} from column: ${urlColumnId}`);
 
     if (!longUrl) {
-      return res.status(400).json({
-        success: false,
-        message: "URL not found in item. Please paste a URL in the 'Paste Long Link' column.",
-        itemData: itemData.column_values.map(c => ({ id: c.id, title: c.title, text: c.text }))
-      });
+      console.error('URL not found in item. Available columns:', itemData.column_values.map(c => {
+        const title = columnTitleMap[c.id] || 'Unknown';
+        return { id: c.id, title: title, text: c.text };
+      }));
+      // Response already sent, just log and return
+      return;
     }
 
     // Validate URL format
