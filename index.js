@@ -739,8 +739,9 @@ app.post('/api/shorten-with-qr', async (req, res) => {
       );
       
       if (statusColumn) {
+        // Use index 1 which corresponds to "Generated"
         const statusUpdate = {
-          [statusColumn.id]: { "label": "Generated" }
+          [statusColumn.id]: { "index": 1 }
         };
         
         const statusResult = await updateMondayColumns(itemId, boardId, statusUpdate);
