@@ -252,7 +252,7 @@ app.post('/webhook/monday', async (req, res) => {
     const boardName = req.body.event?.pulseName || "New Auto Board";
     const workspaceId = req.body.event?.workspaceId || '14192369';
     const folderId = req.body.event?.folderId || '19465689';
-    const templateId = '16165057';
+    const templateId = '17081251';
     
     console.log(`📋 Creating board: "${boardName}" from template: ${templateId}`);
     
