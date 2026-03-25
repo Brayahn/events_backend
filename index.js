@@ -279,9 +279,9 @@ async function fetchWorkspaceId(boardId) {
 const TEMPLATE_MAP = {
   "Attendees": "18334124",  // 🔁 Replace with your actual template IDs
   "Tool Board": "18342403",
-  "Logistics & operations": "18341357",
-  "Marketing": "18341151",
-  "Sponsors": "18341079",
+  "Logistics and Operations Board": "18341357",
+  "Marketing and Promotions": "18341151",
+  "Sponsors & Mentors": "18341079",
   "Vendors": "18340141",
   "Finance": "18338785",
   "Survey": "18338604",
@@ -416,7 +416,7 @@ if (!workspaceId) {
     }
 
     // --- Extract selected dropdown value(s) ---
-    const dropdownColumn = itemData.column_values.find(col => col.type === 'dropdown');
+    const dropdownColumn = itemData.column_values.find(col => col.id === 'dropdown_mm1sdrwa');
     let selectedTemplates = [];
 
     if (dropdownColumn?.value) {
