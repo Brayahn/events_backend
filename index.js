@@ -237,12 +237,22 @@ async function getBoardColumns(boardId) {
 
 
 
+
+
+
 // ==================== TEMPLATE MAP ====================
 // Map dropdown label (as it appears in Monday) to Monday template IDs
 const TEMPLATE_MAP = {
-  "Template A": "11111111",  // 🔁 Replace with your actual template IDs
-  "Template B": "22222222",
-  "Template C": "33333333",
+  "Attendees": "18334124",  // 🔁 Replace with your actual template IDs
+  "Tool Board": "18342403",
+  "Logistics & operations": "18341357",
+  "Marketing": "18341151",
+  "Sponsors": "18341079",
+  "Vendors": "18340141",
+  "Finance": "18338785",
+  "Survey": "18338604",
+  "Graphic Design": "18338386",
+  "Event Tasks": "18343424",
 };
 
 
