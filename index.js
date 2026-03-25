@@ -236,6 +236,251 @@ async function getBoardColumns(boardId) {
 }
 
 
+
+// ==================== TEMPLATE MAP ====================
+// Map dropdown label (as it appears in Monday) to Monday template IDs
+const TEMPLATE_MAP = {
+  "Template A": "11111111",  // 🔁 Replace with your actual template IDs
+  "Template B": "22222222",
+  "Template C": "33333333",
+};
+
+
+// ==================== CREATE FOLDER ====================
+async function createMondayFolder(folderName, workspaceId) {
+  logDivider();
+  console.log("📁 Creating Folder:", folderName);
+
+  const query = `
+    mutation ($folderName: String!, $workspaceId: ID!) {
+      create_folder (
+        name: $folderName,
+        workspace_id: $workspaceId
+      ) {
+        id
+        name
+      }
+    }
+  `;
+
+  const response = await fetch("https://api.monday.com/v2", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": MONDAY_API_KEY
+    },
+    body: JSON.stringify({
+      query,
+      variables: {
+        folderName,
+        workspaceId: workspaceId.toString()
+      }
+    })
+  });
+
+  const data = await response.json();
+  console.log("📥 Create Folder Response:", JSON.stringify(data, null, 2));
+
+  if (data.errors) console.error("❌ Create Folder Errors:", data.errors);
+
+  logDivider();
+  return data?.data?.create_folder || null;
+}
+
+
+// ==================== ADD SUBSCRIBER (OWNER) TO BOARD ====================
+async function addBoardSubscriber(boardId, userId, kind = "owner") {
+  logDivider();
+  console.log(`👤 Adding user ${userId} as ${kind} to board ${boardId}`);
+
+  const query = `
+    mutation ($boardId: ID!, $userIds: [ID!]!, $kind: SubscriberKind!) {
+      add_subscribers_to_board (
+        board_id: $boardId,
+        user_ids: $userIds,
+        kind: $kind
+      ) {
+        id
+        name
+      }
+    }
+  `;
+
+  const response = await fetch("https://api.monday.com/v2", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": MONDAY_API_KEY
+    },
+    body: JSON.stringify({
+      query,
+      variables: {
+        boardId: boardId.toString(),
+        userIds: [userId.toString()],
+        kind
+      }
+    })
+  });
+
+  const data = await response.json();
+  console.log("📥 Add Subscriber Response:", JSON.stringify(data, null, 2));
+
+  if (data.errors) console.error("❌ Add Subscriber Errors:", data.errors);
+
+  logDivider();
+  return data;
+}
+
+
+// ==================== EVENTS CREATOR WEBHOOK ====================
+app.post('/webhook/events_creator', async (req, res) => {
+  console.log('📨 Events Creator Webhook received:', JSON.stringify(req.body, null, 2));
+
+  // Monday verification challenge
+  if (req.body.challenge) {
+    return res.status(200).json({ challenge: req.body.challenge });
+  }
+
+  // Respond immediately to Monday so the webhook doesn't time out
+  res.status(200).json({ success: true });
+  console.log("✅ Immediate response sent");
+
+  try {
+    const event = req.body.event;
+    const itemId = event?.pulseId;
+    const boardId = event?.boardId;
+    const workspaceId = event?.workspaceId;
+    const eventName = event?.pulseName;
+
+    if (!itemId || !boardId || !workspaceId || !eventName) {
+      console.error("❌ Missing required event fields");
+      return;
+    }
+
+    // Fetch item column data
+    const itemData = await getMondayItemData(itemId);
+    if (!itemData) {
+      console.error("❌ Could not fetch item data");
+      return;
+    }
+
+    // --- Extract selected dropdown value(s) ---
+    const dropdownColumn = itemData.column_values.find(col => col.type === 'dropdown');
+    let selectedTemplates = [];
+
+    if (dropdownColumn?.value) {
+      const parsed = JSON.parse(dropdownColumn.value);
+      // dropdown value is { ids: [...] } but text gives the labels directly
+      // Use the text field which is a comma-separated list of selected labels
+      selectedTemplates = dropdownColumn.text
+        ? dropdownColumn.text.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+    }
+
+    console.log("📋 Selected templates:", selectedTemplates);
+
+    if (selectedTemplates.length === 0) {
+      console.warn("⚠️ No dropdown templates selected on this item");
+      return;
+    }
+
+    // --- Extract event owner user ID from People column ---
+    const peopleColumn = itemData.column_values.find(col => col.type === 'people');
+    let ownerId = null;
+
+    if (peopleColumn?.value) {
+      const parsed = JSON.parse(peopleColumn.value);
+      // personsAndTeams is an array; grab the first person's id
+      const firstPerson = parsed?.personsAndTeams?.find(p => p.kind === 'person');
+      ownerId = firstPerson?.id || null;
+    }
+
+    console.log("👤 Event Owner ID:", ownerId);
+
+    // --- Step 1: Create folder named after the event ---
+    const folder = await createMondayFolder(eventName, workspaceId);
+    if (!folder?.id) {
+      console.error("❌ Folder creation failed");
+      return;
+    }
+    console.log(`✅ Folder created: "${folder.name}" (ID: ${folder.id})`);
+
+    // --- Step 2: Create a board for each selected template ---
+    const createdBoardIds = [];
+
+    for (const templateLabel of selectedTemplates) {
+      const templateId = TEMPLATE_MAP[templateLabel];
+
+      if (!templateId) {
+        console.warn(`⚠️ No template ID mapped for: "${templateLabel}" — skipping`);
+        continue;
+      }
+
+      console.log(`📋 Creating board for template: "${templateLabel}" (templateId: ${templateId})`);
+
+      const createBoardQuery = `
+        mutation ($boardName: String!, $workspaceId: ID!, $folderId: ID!, $templateId: ID!) {
+          create_board (
+            board_name: $boardName,
+            board_kind: public,
+            workspace_id: $workspaceId,
+            folder_id: $folderId,
+            template_id: $templateId
+          ) {
+            id
+            name
+          }
+        }
+      `;
+
+      const boardResponse = await fetch("https://api.monday.com/v2", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": MONDAY_API_KEY
+        },
+        body: JSON.stringify({
+          query: createBoardQuery,
+          variables: {
+            boardName: `${eventName} — ${templateLabel}`,
+            workspaceId: workspaceId.toString(),
+            folderId: folder.id.toString(),
+            templateId
+          }
+        })
+      });
+
+      const boardData = await boardResponse.json();
+      console.log("📥 Board creation response:", JSON.stringify(boardData, null, 2));
+
+      const newBoardId = boardData?.data?.create_board?.id;
+      if (newBoardId) {
+        console.log(`✅ Board created: "${boardData.data.create_board.name}" (ID: ${newBoardId})`);
+        createdBoardIds.push(newBoardId);
+      } else {
+        console.error(`❌ Board creation failed for template: "${templateLabel}"`);
+      }
+    }
+
+    // --- Step 3: Set event owner as owner of all created boards ---
+    if (ownerId && createdBoardIds.length > 0) {
+      for (const newBoardId of createdBoardIds) {
+        await addBoardSubscriber(newBoardId, ownerId, "owner");
+      }
+      console.log(`✅ Owner (ID: ${ownerId}) assigned to ${createdBoardIds.length} board(s)`);
+    } else if (!ownerId) {
+      console.warn("⚠️ No event owner found — skipping owner assignment");
+    }
+
+    console.log("🎉 Events Creator Processing Complete");
+
+  } catch (error) {
+    console.error("🔥 Events Creator Error:", error);
+  }
+});
+
+
+
 // ==================== MONDAY WEBHOOK ====================
 app.post('/webhook/monday', async (req, res) => {
   console.log('📨 Webhook received:', JSON.stringify(req.body, null, 2));
