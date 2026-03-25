@@ -238,6 +238,40 @@ async function getBoardColumns(boardId) {
 
 
 
+// ==================== FETCH WORKSPACE ID ====================
+async function fetchWorkspaceId(boardId) {
+  logDivider();
+  console.log("📤 Fetching Workspace ID for board:", boardId);
+
+  const query = `
+    query {
+      boards(ids: [${boardId}]) {
+        workspace_id
+      }
+    }
+  `;
+
+  const response = await fetch("https://api.monday.com/v2", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": MONDAY_API_KEY
+    },
+    body: JSON.stringify({ query })
+  });
+
+  const data = await response.json();
+  console.log("📥 Workspace ID Response:", JSON.stringify(data, null, 2));
+
+  if (data.errors) console.error("❌ Workspace Fetch Errors:", data.errors);
+
+  logDivider();
+  return data?.data?.boards?.[0]?.workspace_id || null;
+}
+
+
+
+
 
 
 // ==================== TEMPLATE MAP ====================
@@ -356,16 +390,23 @@ app.post('/webhook/events_creator', async (req, res) => {
   console.log("✅ Immediate response sent");
 
   try {
-    const event = req.body.event;
-    const itemId = event?.pulseId;
-    const boardId = event?.boardId;
-    const workspaceId = event?.workspaceId;
-    const eventName = event?.pulseName;
+  const event = req.body.event;
+const itemId = event?.pulseId;
+const boardId = event?.boardId;
+const eventName = event?.pulseName;
 
-    if (!itemId || !boardId || !workspaceId || !eventName) {
-      console.error("❌ Missing required event fields");
-      return;
-    }
+if (!itemId || !boardId || !eventName) {
+  console.error("❌ Missing required event fields");
+  return;
+}
+
+// workspaceId is not included in update_column_value webhooks — fetch it
+const workspaceId = event?.workspaceId || await fetchWorkspaceId(boardId);
+
+if (!workspaceId) {
+  console.error("❌ Could not resolve workspaceId");
+  return;
+}
 
     // Fetch item column data
     const itemData = await getMondayItemData(itemId);
