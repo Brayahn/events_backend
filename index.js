@@ -443,7 +443,7 @@ if (!workspaceId) {
     if (selectedTemplates.length === 0) {
       console.warn("⚠️ No dropdown templates selected on this item");
       await updateMondayColumns(itemId, '18402110601', {
-        status: { index: 4 }  
+        status: { index: 0 }  
       });
       return;
     }
