@@ -274,6 +274,13 @@ async function fetchWorkspaceId(boardId) {
 
 
 
+
+
+// ==================== FOLDER IDs ====================
+const LIVE_EVENTS_FOLDER_ID = '20005681';   
+const CLOSED_EVENTS_FOLDER_ID = '20005687'; 
+
+
 // ==================== TEMPLATE MAP ====================
 // Map dropdown label (as it appears in Monday) to Monday template IDs
 const TEMPLATE_MAP = {
@@ -291,15 +298,16 @@ const TEMPLATE_MAP = {
 
 
 // ==================== CREATE FOLDER ====================
-async function createMondayFolder(folderName, workspaceId) {
+async function createMondayFolder(folderName, workspaceId, parentFolderId = null) {
   logDivider();
   console.log("📁 Creating Folder:", folderName);
 
   const query = `
-    mutation ($folderName: String!, $workspaceId: ID!) {
+    mutation ($folderName: String!, $workspaceId: ID!, $parentFolderId: ID) {
       create_folder (
         name: $folderName,
-        workspace_id: $workspaceId
+        workspace_id: $workspaceId,
+        parent_folder_id: $parentFolderId
       ) {
         id
         name
@@ -317,7 +325,8 @@ async function createMondayFolder(folderName, workspaceId) {
       query,
       variables: {
         folderName,
-        workspaceId: workspaceId.toString()
+        workspaceId: workspaceId.toString(),
+        parentFolderId: parentFolderId ? parentFolderId.toString() : null
       }
     })
   });
@@ -449,7 +458,7 @@ if (!workspaceId) {
     console.log("👤 Event Owner ID:", ownerId);
 
     // --- Step 1: Create folder named after the event ---
-    const folder = await createMondayFolder(eventName, workspaceId);
+    const folder = await createMondayFolder(eventName, workspaceId, LIVE_EVENTS_FOLDER_ID);
     if (!folder?.id) {
       console.error("❌ Folder creation failed");
       return;
@@ -756,6 +765,200 @@ app.get('/s/:shortCode', (req, res) => {
   data.clicks++;
   res.redirect(data.originalUrl);
 });
+
+
+
+
+
+// ==================== FETCH BOARDS IN FOLDER ====================
+async function getBoardsInFolder(folderId) {
+  logDivider();
+  console.log("📤 Fetching boards in folder:", folderId);
+
+  const query = `
+    query {
+      folders(ids: [${folderId}]) {
+        children {
+          id
+          name
+        }
+      }
+    }
+  `;
+
+  const response = await fetch("https://api.monday.com/v2", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": MONDAY_API_KEY
+    },
+    body: JSON.stringify({ query })
+  });
+
+  const data = await response.json();
+  console.log("📥 Boards in Folder Response:", JSON.stringify(data, null, 2));
+
+  if (data.errors) console.error("❌ Fetch Folder Boards Errors:", data.errors);
+
+  logDivider();
+  return data?.data?.folders?.[0]?.children || [];
+}
+
+
+// ==================== MOVE BOARD TO FOLDER ====================
+async function moveBoardToFolder(boardId, folderId) {
+  logDivider();
+  console.log(`📦 Moving board ${boardId} to folder ${folderId}`);
+
+  const query = `
+    mutation ($boardId: ID!, $folderId: ID!) {
+      move_board_to_folder (
+        board_id: $boardId,
+        folder_id: $folderId
+      ) {
+        id
+      }
+    }
+  `;
+
+  const response = await fetch("https://api.monday.com/v2", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": MONDAY_API_KEY
+    },
+    body: JSON.stringify({
+      query,
+      variables: {
+        boardId: boardId.toString(),
+        folderId: folderId.toString()
+      }
+    })
+  });
+
+  const data = await response.json();
+  console.log("📥 Move Board Response:", JSON.stringify(data, null, 2));
+
+  if (data.errors) console.error("❌ Move Board Errors:", data.errors);
+
+  logDivider();
+  return data;
+}
+
+
+// ==================== EVENTS CLOSED WEBHOOK ====================
+app.post('/webhook/events_closed', async (req, res) => {
+  console.log('📨 Events Closed Webhook received:', JSON.stringify(req.body, null, 2));
+
+  if (req.body.challenge) {
+    return res.status(200).json({ challenge: req.body.challenge });
+  }
+
+  res.status(200).json({ success: true });
+  console.log("✅ Immediate response sent");
+
+  try {
+    const event = req.body.event;
+    const eventName = event?.pulseName;
+    const boardId = event?.boardId;
+
+    if (!eventName || !boardId) {
+      console.error("❌ Missing required event fields");
+      return;
+    }
+
+    // Find the event's subfolder inside Live Events by matching the event name
+    const liveFolderChildren = await getBoardsInFolder(LIVE_EVENTS_FOLDER_ID);
+    // Monday's folder children API returns both folders and boards — folders have no board-specific fields
+    // We fetch the Live Events subfolders separately
+    const query = `
+      query {
+        folders(ids: [${LIVE_EVENTS_FOLDER_ID}]) {
+          children {
+            id
+            name
+          }
+        }
+      }
+    `;
+
+    const folderRes = await fetch("https://api.monday.com/v2", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": MONDAY_API_KEY
+      },
+      body: JSON.stringify({ query })
+    });
+
+    const folderData = await folderRes.json();
+    console.log("📥 Live Events subfolders:", JSON.stringify(folderData, null, 2));
+
+    const subFolders = folderData?.data?.folders?.[0]?.children || [];
+    const eventFolder = subFolders.find(f => f.name === eventName);
+
+    if (!eventFolder) {
+      console.error(`❌ Could not find subfolder named "${eventName}" inside Live Events`);
+      return;
+    }
+
+    console.log(`✅ Found event folder: "${eventFolder.name}" (ID: ${eventFolder.id})`);
+
+    // Get all boards inside the event subfolder
+    const boardsInFolder = await getBoardsInFolder(eventFolder.id);
+    console.log(`📋 Boards to move: ${boardsInFolder.length}`);
+
+    // Move each board to Closed Events folder
+    for (const board of boardsInFolder) {
+      await moveBoardToFolder(board.id, CLOSED_EVENTS_FOLDER_ID);
+      console.log(`✅ Moved board "${board.name}" to Closed Events`);
+    }
+
+    // Move the event folder itself to Closed Events
+    const moveFolderQuery = `
+      mutation ($folderId: ID!, $parentFolderId: ID!) {
+        update_folder (
+          folder_id: $folderId,
+          parent_folder_id: $parentFolderId
+        ) {
+          id
+        }
+      }
+    `;
+
+    const moveFolderRes = await fetch("https://api.monday.com/v2", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": MONDAY_API_KEY
+      },
+      body: JSON.stringify({
+        query: moveFolderQuery,
+        variables: {
+          folderId: eventFolder.id.toString(),
+          parentFolderId: CLOSED_EVENTS_FOLDER_ID.toString()
+        }
+      })
+    });
+
+    const moveFolderData = await moveFolderRes.json();
+    console.log("📥 Move Folder Response:", JSON.stringify(moveFolderData, null, 2));
+
+    if (moveFolderData.errors) {
+      console.error("❌ Move Folder Errors:", moveFolderData.errors);
+    } else {
+      console.log(`✅ Event folder "${eventName}" moved to Closed Events`);
+    }
+
+    console.log("🎉 Events Closed Processing Complete");
+
+  } catch (error) {
+    console.error("🔥 Events Closed Error:", error);
+  }
+});
+
+
+
 
 
 // ==================== START ====================
