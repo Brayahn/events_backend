@@ -286,7 +286,7 @@ const TEMPLATE_MAP = {
   "Finance": "18338785",
   "Survey": "18338604",
   "Graphic Design": "18338386",
-  "Event Tasks": "18343424",
+  "Event Tasks": "18390066",
 };
 
 
