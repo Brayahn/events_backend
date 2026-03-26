@@ -347,7 +347,7 @@ async function addBoardSubscriber(boardId, userId, kind = "owner") {
   console.log(`👤 Adding user ${userId} as ${kind} to board ${boardId}`);
 
   const query = `
-    mutation ($boardId: ID!, $userIds: [ID!]!, $kind: SubscriberKind!) {
+    mutation ($boardId: ID!, $userIds: [ID!]!, $kind: BoardSubscriberKind!) {
       add_subscribers_to_board (
         board_id: $boardId,
         user_ids: $userIds,
@@ -867,35 +867,37 @@ app.post('/webhook/events_closed', async (req, res) => {
       return;
     }
 
-    // Find the event's subfolder inside Live Events by matching the event name
-    const liveFolderChildren = await getBoardsInFolder(LIVE_EVENTS_FOLDER_ID);
-    // Monday's folder children API returns both folders and boards — folders have no board-specific fields
-    // We fetch the Live Events subfolders separately
-    const query = `
+
+
+
+
+const subFolderRes = await fetch("https://api.monday.com/v2", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": MONDAY_API_KEY
+  },
+  body: JSON.stringify({
+    query: `
       query {
         folders(ids: [${LIVE_EVENTS_FOLDER_ID}]) {
-          children {
+          sub_folders {
             id
             name
           }
         }
       }
-    `;
+    `
+  })
+});
 
-    const folderRes = await fetch("https://api.monday.com/v2", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": MONDAY_API_KEY
-      },
-      body: JSON.stringify({ query })
-    });
+const subFolderData = await subFolderRes.json();
+console.log("📥 Live Events sub_folders:", JSON.stringify(subFolderData, null, 2));
 
-    const folderData = await folderRes.json();
-    console.log("📥 Live Events subfolders:", JSON.stringify(folderData, null, 2));
+const subFolders = subFolderData?.data?.folders?.[0]?.sub_folders || [];
+const eventFolder = subFolders.find(f => f.name === eventName);
 
-    const subFolders = folderData?.data?.folders?.[0]?.children || [];
-    const eventFolder = subFolders.find(f => f.name === eventName);
+
 
     if (!eventFolder) {
       console.error(`❌ Could not find subfolder named "${eventName}" inside Live Events`);
