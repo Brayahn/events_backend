@@ -463,7 +463,14 @@ if (!workspaceId) {
       console.error("❌ Folder creation failed");
       return;
     }
+
     console.log(`✅ Folder created: "${folder.name}" (ID: ${folder.id})`);
+
+    // --- Update master board status to "Live" ---
+    await updateMondayColumns(itemId, '18402110601', {
+      status: { index: 2 }   // 🔁 Replace 2 with the actual index of your "Live" label
+    });
+    console.log("✅ Master board status updated to Live");
 
     // --- Step 2: Create a board for each selected template ---
     const createdBoardIds = [];
